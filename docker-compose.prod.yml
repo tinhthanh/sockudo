@@ -6,28 +6,39 @@ services:
     container_name: ${SERVICE_NAME}
     restart: unless-stopped
     networks:
-      - traefik_proxy # Dùng chung mạng này để tiết kiệm IP pool
+      - traefik_proxy
     
     environment:
-      # Inject Config
       - SOCKUDO_CONFIG_BASE64=${SOCKUDO_CONFIG_BASE64}
-      
-      # Fallback env vars
       - HOST=0.0.0.0
       - PORT=6001
       - RUST_LOG=info
-
-      # Redis Config (Internal connection via service name)
       - DATABASE_REDIS_HOST=redis
       - DATABASE_REDIS_PORT=6379
 
     depends_on:
       - redis
     
+    # === FIX LỖI "NOT FOUND" ===
+    # Script này sẽ:
+    # 1. Tạo thư mục config
+    # 2. Giải mã file config
+    # 3. Tìm file binary 'sockudo' ở bất kỳ đâu trong container
+    # 4. Cấp quyền thực thi và chạy nó
     command: >
-      sh -c "mkdir -p /app/config && 
-             echo \"$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json && 
-             ./sockudo --config /app/config/production.json"
+      sh -c "
+        mkdir -p /app/config && 
+        echo \"$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
+        echo '🔍 Searching for sockudo binary...' &&
+        SOCKUDO_BIN=\$(find / -name sockudo -type f | head -n 1) &&
+        if [ -z \"\$SOCKUDO_BIN\" ]; then
+          echo '❌ Error: sockudo binary not found inside container!';
+          exit 1;
+        fi &&
+        echo \"✅ Found binary at: \$SOCKUDO_BIN\" &&
+        chmod +x \"\$SOCKUDO_BIN\" &&
+        \"\$SOCKUDO_BIN\" --config /app/config/production.json
+      "
 
     labels:
       - "traefik.enable=true"
@@ -44,8 +55,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
-      - traefik_proxy # Dùng chung mạng với App
-    # Không có labels -> Không public ra ngoài internet, an toàn.
+      - traefik_proxy
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
