@@ -6,25 +6,24 @@ services:
     container_name: ${SERVICE_NAME}
     restart: unless-stopped
     networks:
-      - traefik_proxy  # Kết nối ra Internet qua Traefik
-      - internal_net   # Kết nối Redis nội bộ
+      - traefik_proxy # Dùng chung mạng này để tiết kiệm IP pool
     
     environment:
-      # Biến quan trọng nhất: Chứa toàn bộ nội dung config.json đã mã hóa Base64
+      # Inject Config
       - SOCKUDO_CONFIG_BASE64=${SOCKUDO_CONFIG_BASE64}
       
-      # Fallback env vars (ít quan trọng khi dùng config file, nhưng cứ để)
+      # Fallback env vars
       - HOST=0.0.0.0
       - PORT=6001
       - RUST_LOG=info
 
+      # Redis Config (Internal connection via service name)
+      - DATABASE_REDIS_HOST=redis
+      - DATABASE_REDIS_PORT=6379
+
     depends_on:
       - redis
     
-    # === MAGIC COMMAND ===
-    # 1. Tạo thư mục config trong container
-    # 2. Giải mã biến môi trường SOCKUDO_CONFIG_BASE64 ra file /app/config/production.json
-    # 3. Khởi động Sockudo trỏ vào file config vừa tạo
     command: >
       sh -c "mkdir -p /app/config && 
              echo \"$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json && 
@@ -32,27 +31,21 @@ services:
 
     labels:
       - "traefik.enable=true"
-      
-      # Router: Bắt domain cluster.* VÀ đường dẫn /sockudo
       - "traefik.http.routers.${SERVICE_NAME}.rule=HostRegexp(`^cluster\\..+`) && PathPrefix(`/${SERVICE_NAME}`)"
       - "traefik.http.routers.${SERVICE_NAME}.entrypoints=web"
       - "traefik.http.routers.${SERVICE_NAME}.service=${SERVICE_NAME}-svc"
-      
-      # Middleware: Cắt tiền tố /sockudo và xử lý CORS
       - "traefik.http.routers.${SERVICE_NAME}.middlewares=strip-prefix-${SERVICE_NAME},default-cors@file"
       - "traefik.http.middlewares.strip-prefix-${SERVICE_NAME}.stripprefix.prefixes=/${SERVICE_NAME}"
-      
-      # Port
       - "traefik.http.services.${SERVICE_NAME}-svc.loadbalancer.server.port=6001"
 
-  # Redis dành riêng cho Sockudo
   redis:
     image: redis:7-alpine
     container_name: ${SERVICE_NAME}_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
-      - internal_net
+      - traefik_proxy # Dùng chung mạng với App
+    # Không có labels -> Không public ra ngoài internet, an toàn.
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -62,5 +55,3 @@ services:
 networks:
   traefik_proxy:
     external: true
-  internal_net:
-    driver: bridge
