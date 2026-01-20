@@ -1,0 +1,51 @@
+{
+  "debug": false,
+  "host": "0.0.0.0",
+  "port": 6001,
+  "app_manager": {
+    "driver": "memory",
+    "array": {
+      "apps": [
+        {
+          "id": "vg-zalo-app",
+          "key": "vg-zalo-key",
+          "secret": "${APP_VETGO_SECRET}", 
+          "max_connections": 10000,
+          "enable_client_messages": true,
+          "enabled": true,
+          "allowed_origins": ["*"]
+        }
+      ]
+    }
+  },
+  "adapter": {
+    "driver": "redis",
+    "redis": {
+      "requests_timeout": 5000,
+      "prefix": "sockudo_adapter:",
+      "cluster_mode": false
+    }
+  },
+  "cache": {
+    "driver": "redis",
+    "redis": {
+      "prefix": "sockudo_cache:",
+      "cluster_mode": false
+    }
+  },
+  "queue": {
+    "driver": "redis",
+    "redis": {
+      "prefix": "sockudo_queue:",
+      "concurrency": 5,
+      "cluster_mode": false
+    }
+  },
+  "database": {
+    "redis": {
+      "host": "redis",
+      "port": 6379,
+      "key_prefix": "sockudo:"
+    }
+  }
+}

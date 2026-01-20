@@ -1,0 +1,95 @@
+name: Build and Deploy Sockudo (Auto-Config)
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: vg-signal
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.SERVICE_NAME }}:latest
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+  deploy:
+    name: Generate Config & Deploy
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- BƯỚC MỚI: Generate Config Base64 từ Template ---
+      - name: Generate Config Base64
+        id: config_gen
+        env:
+          # Mapping các Secret vào biến môi trường để envsubst sử dụng
+          APP_VETGO_SECRET: ${{ secrets.APP_VETGO_SECRET }}
+        run: |
+          # Thay thế biến trong template bằng giá trị thật
+          envsubst < config/production.json.template > config.prod.json
+          
+          # Mã hóa sang Base64 (dạng 1 dòng)
+          CONFIG_B64=$(base64 -w 0 config.prod.json)
+          
+          # Masking để không lộ config trong log GitHub (Optional nhưng Recommended)
+          echo "::add-mask::$CONFIG_B64"
+          
+          # Lưu vào output để bước sau dùng
+          echo "config_base64=$CONFIG_B64" >> $GITHUB_OUTPUT
+
+      - name: Prepare Docker Compose
+        id: read_compose
+        run: echo "content=$(base64 -w0 docker-compose.prod.yml)" >> $GITHUB_OUTPUT
+        
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          # Truyền biến config base64 vừa tạo vào SSH session
+          envs: SERVICE_NAME,DOCKERHUB_USERNAME
+          script: |
+            set -e
+            TARGET_DIR="/home/vetgo/cicd/app_services/repo/${{ env.SERVICE_NAME }}"
+            mkdir -p "$TARGET_DIR"
+            
+            # Giải mã file docker-compose
+            echo "${{ steps.read_compose.outputs.content }}" | base64 -d > "$TARGET_DIR/docker-compose.prod.yml"
+            
+            cd "$TARGET_DIR"
+            
+            # Tạo file .env chứa Config Base64 được tạo động từ bước trên
+            cat << ENVEOF > .env
+            DOCKERHUB_USERNAME=${{ env.DOCKERHUB_USERNAME }}
+            SERVICE_NAME=${{ env.SERVICE_NAME }}
+            SOCKUDO_CONFIG_BASE64=${{ steps.config_gen.outputs.config_base64 }}
+            ENVEOF
+            
+            # Deploy
+            docker-compose --env-file .env -f docker-compose.prod.yml pull
+            docker-compose --env-file .env -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+            
+            echo "✅ Sockudo deployed with Auto-Generated Config!"
