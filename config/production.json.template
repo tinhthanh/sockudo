@@ -14,8 +14,6 @@
           "enable_client_messages": true,
           "enabled": true,
           "allowed_origins": ["*"],
-          
-          # --- BỔ SUNG CÁC TRƯỜNG BẮT BUỘC ---
           "max_client_events_per_second": 100,
           "max_backend_events_per_second": 1000,
           "max_read_requests_per_second": 1000,
