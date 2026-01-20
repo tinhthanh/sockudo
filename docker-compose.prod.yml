@@ -19,25 +19,21 @@ services:
     depends_on:
       - redis
     
-    # === FIX LỖI "NOT FOUND" ===
-    # Script này sẽ:
-    # 1. Tạo thư mục config
-    # 2. Giải mã file config
-    # 3. Tìm file binary 'sockudo' ở bất kỳ đâu trong container
-    # 4. Cấp quyền thực thi và chạy nó
+    # === FIX LỖI INTERPOLATION ($ -> $$) ===
+    # Docker Compose yêu cầu dùng $$ để escape biến shell
     command: >
       sh -c "
         mkdir -p /app/config && 
-        echo \"$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
+        echo \"$$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
         echo '🔍 Searching for sockudo binary...' &&
-        SOCKUDO_BIN=\$(find / -name sockudo -type f | head -n 1) &&
-        if [ -z \"\$SOCKUDO_BIN\" ]; then
+        SOCKUDO_BIN=$$(find / -name sockudo -type f | head -n 1) &&
+        if [ -z \"$$SOCKUDO_BIN\" ]; then
           echo '❌ Error: sockudo binary not found inside container!';
           exit 1;
         fi &&
-        echo \"✅ Found binary at: \$SOCKUDO_BIN\" &&
-        chmod +x \"\$SOCKUDO_BIN\" &&
-        \"\$SOCKUDO_BIN\" --config /app/config/production.json
+        echo \"✅ Found binary at: $$SOCKUDO_BIN\" &&
+        chmod +x \"$$SOCKUDO_BIN\" &&
+        \"$$SOCKUDO_BIN\" --config /app/config/production.json
       "
 
     labels:
