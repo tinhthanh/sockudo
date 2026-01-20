@@ -19,21 +19,27 @@ services:
     depends_on:
       - redis
     
-    # === FIX LỖI INTERPOLATION ($ -> $$) ===
-    # Docker Compose yêu cầu dùng $$ để escape biến shell
+    # === FIX LỖI PERMISSION ===
+    # 1. Bỏ lệnh find / (gây ồn log)
+    # 2. Bỏ lệnh chmod (gây lỗi permission)
+    # 3. Trỏ trực tiếp vào đường dẫn đã biết (/usr/local/bin/sockudo) hoặc tìm trong PATH
     command: >
       sh -c "
         mkdir -p /app/config && 
         echo \"$$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
-        echo '🔍 Searching for sockudo binary...' &&
-        SOCKUDO_BIN=$$(find / -name sockudo -type f | head -n 1) &&
-        if [ -z \"$$SOCKUDO_BIN\" ]; then
-          echo '❌ Error: sockudo binary not found inside container!';
-          exit 1;
-        fi &&
-        echo \"✅ Found binary at: $$SOCKUDO_BIN\" &&
-        chmod +x \"$$SOCKUDO_BIN\" &&
-        \"$$SOCKUDO_BIN\" --config /app/config/production.json
+        
+        echo '🚀 Starting Sockudo...' &&
+        
+        if [ -f /usr/local/bin/sockudo ]; then
+          echo '✅ Found binary at /usr/local/bin/sockudo'
+          exec /usr/local/bin/sockudo --config /app/config/production.json
+        elif [ -f /app/sockudo ]; then
+           echo '✅ Found binary at /app/sockudo'
+           exec /app/sockudo --config /app/config/production.json
+        else
+           echo '⚠️ Binary not found in standard paths, attempting to run from PATH...'
+           exec sockudo --config /app/config/production.json
+        fi
       "
 
     labels:
