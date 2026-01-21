@@ -19,36 +19,46 @@ services:
     depends_on:
       - redis
     
-    # === FIX LỖI PERMISSION ===
-    # 1. Bỏ lệnh find / (gây ồn log)
-    # 2. Bỏ lệnh chmod (gây lỗi permission)
-    # 3. Trỏ trực tiếp vào đường dẫn đã biết (/usr/local/bin/sockudo) hoặc tìm trong PATH
+    # Script khởi động (Giữ nguyên logic đã fix trước đó)
     command: >
       sh -c "
         mkdir -p /app/config && 
-        echo \"$$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
         
+        if [ -n \"$$SOCKUDO_CONFIG_BASE64\" ]; then
+          echo 'Found config in env, decoding...' &&
+          echo \"$$SOCKUDO_CONFIG_BASE64\" | base64 -d > /app/config/production.json &&
+          echo 'Config decoded successfully'
+        else
+          echo '❌ ERROR: SOCKUDO_CONFIG_BASE64 env var is empty!'
+        fi &&
+
         echo '🚀 Starting Sockudo...' &&
         
         if [ -f /usr/local/bin/sockudo ]; then
-          echo '✅ Found binary at /usr/local/bin/sockudo'
           exec /usr/local/bin/sockudo --config /app/config/production.json
         elif [ -f /app/sockudo ]; then
-           echo '✅ Found binary at /app/sockudo'
            exec /app/sockudo --config /app/config/production.json
         else
-           echo '⚠️ Binary not found in standard paths, attempting to run from PATH...'
+           echo '⚠️ Binary not found, attempting PATH...'
            exec sockudo --config /app/config/production.json
         fi
       "
 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.${SERVICE_NAME}.rule=HostRegexp(`^cluster\\..+`) && PathPrefix(`/${SERVICE_NAME}`)"
+      
+      # === CẤU HÌNH ĐA DOMAIN (Dynamic) ===
+      # Bắt tất cả các host bắt đầu bằng "vg-signal."
+      # Ví dụ: vg-signal.petplus.vn, vg-signal.phanmemvet.vn
+      - "traefik.http.routers.${SERVICE_NAME}.rule=HostRegexp(`^vg-signal\\..+`)"
+      
       - "traefik.http.routers.${SERVICE_NAME}.entrypoints=web"
       - "traefik.http.routers.${SERVICE_NAME}.service=${SERVICE_NAME}-svc"
-      - "traefik.http.routers.${SERVICE_NAME}.middlewares=strip-prefix-${SERVICE_NAME},default-cors@file"
-      - "traefik.http.middlewares.strip-prefix-${SERVICE_NAME}.stripprefix.prefixes=/${SERVICE_NAME}"
+      
+      # Không dùng StripPrefix vì đây là Subdomain
+      - "traefik.http.routers.${SERVICE_NAME}.middlewares=default-cors@file"
+      
+      # Port container
       - "traefik.http.services.${SERVICE_NAME}-svc.loadbalancer.server.port=6001"
 
   redis:
