@@ -22,7 +22,7 @@
           "max_channel_name_length": 200,
           "max_event_channels_at_once": "100",
           "max_event_name_length": 200,
-          "max_event_payload_in_kb": "100",
+          "max_event_payload_in_kb": "2048",
           "max_event_batch_size": "10",
           "enable_user_authentication": false,
           "enable_watchlist_events": false
